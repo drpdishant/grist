@@ -4,3 +4,8 @@ metadata:
   name: keycloakrealm-sample
 spec:
   # TODO(user): Add fields here
+  realm_id: demo
+  auth_secret_name: keycloak-admin-secret
+  auth_realm: master
+  auth_keycloak_url: "https://kc.lb.korifi.run"
+  
