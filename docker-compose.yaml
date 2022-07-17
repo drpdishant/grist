@@ -1,0 +1,104 @@
+version: '3'
+
+services:
+  reverse-proxy:
+    # Use Traefik for routing and certificate handling.
+    # environment:
+    #   CLOUDFLARE_EMAIL: <cloudflare-email>
+    #   CLOUDFLARE_API_KEY: <cloudflare-global-api-key>
+    image: traefik:v2.6
+    command:
+      - --providers.docker
+      - --certificatesResolvers.letsencrypt.acme.email=${EMAIL}
+      - --certificatesResolvers.letsencrypt.acme.storage=/acme/acme.json
+      - --certificatesResolvers.letsencrypt.acme.httpchallenge=true
+      #- --certificatesResolvers.letsencrypt.acme.dnschallenge=true  DNS_CHALLENGE REQUIRED CLOUDFLARE
+      #- --certificatesResolvers.letsencrypt.acme.dnschallenge.provider=cloudflare
+      - --entrypoints.websecure.address=:443
+      - --entrypoints.websecure.http.tls=true
+      - --entrypoints.web.address=:80
+      - --entrypoints.web.http.redirections.entrypoint.to=websecure
+      - --entrypoints.web.http.redirections.entrypoint.scheme=https
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      # You may want to put state somewhere other than /tmp :-)
+      - /tmp/grist/acme:/acme
+      # Traefik needs docker access when configured via docker labels.
+      - /var/run/docker.sock:/var/run/docker.sock
+  
+
+
+  traefik-forward-auth:
+    # Authentication middleware.
+    # See https://github.com/thomseddon/traefik-forward-auth for
+    # options for configuring it.
+    image: thomseddon/traefik-forward-auth:2
+    environment:
+      DEFAULT_PROVIDER: oidc
+      PROVIDERS_OIDC_ISSUER_URL: https://kc.local.korifi.run/realms/master #Replace With actual keycloak URL
+      PROVIDERS_OIDC_CLIENT_ID: fw-auth
+      PROVIDERS_OIDC_CLIENT_SECRET: <keycloak-client-secret> 
+      # PROVIDERS_GOOGLE_CLIENT_ID: <google-client-id>
+      # PROVIDERS_GOOGLE_CLIENT_SECRET: <google-client-secret>
+      INSECURE_COOKIE: true
+      SECRET: something-random
+      LOGOUT_REDIRECT: "https://${DOMAIN}/signed-out"
+    labels:
+      traefik.http.services.traefik-forward-auth.loadbalancer.server.port: 4181
+      traefik.http.middlewares.traefik-forward-auth.forwardauth.address: "http://traefik-forward-auth:4181"
+      traefik.http.middlewares.traefik-forward-auth.forwardauth.authResponseHeaders: "X-Forwarded-User"
+    depends_on:
+      - keycloak
+
+  keycloak:
+       image: quay.io/keycloak/keycloak
+       environment:
+         KEYCLOAK_ADMIN: admin
+         KEYCLOAK_ADMIN_PASSWORD: admin
+         KC_PROXY: edge
+       entrypoint: ["/opt/keycloak/bin/kc.sh", "start-dev"]
+       ports:
+         - 8080:8080
+       labels:
+         traefik.http.services.keycloak.loadbalancer.server.port: 8080
+         traefik.http.routers.keycloak.rule: Host(`kc.local.korifi.run`)
+         traefik.http.routers.keycloak.tls.certresolver: letsencrypt
+
+  grist:
+    image: gristlabs/grist
+    # image: mendhak/http-https-echo:24
+    environment:
+      GRIST_FORWARD_AUTH_HEADER: X-Forwarded-User
+      GRIST_FORWARD_AUTH_LOGOUT_PATH: _oauth/logout
+      GRIST_SINGLE_ORG: grist  # alternatively, GRIST_ORG_IN_PATH: "true" for multi-team operation
+      GRIST_DEFAULT_EMAIL: ${EMAIL}
+      APP_HOME_URL: https://${DOMAIN}
+    # ports:
+    #   - "8484:8484"
+    volumes:
+      # You may want to put state somewhere other than /tmp :-)
+      - /tmp/grist/data:/persist
+    labels:
+      traefik.http.services.grist.loadbalancer.server.port: 8484
+
+      # When logging in, use traefik-forward-auth middleware.
+      traefik.http.routers.login.rule: Host(`${DOMAIN}`) && PathPrefix(`/auth/login`)
+      traefik.http.routers.login.middlewares: traefik-forward-auth
+      traefik.http.routers.login.service: grist
+      # Comment out each line with "letsencypt" in it if your domain is not publically
+      # accessible and you want to use a self-signed certificate.
+      traefik.http.routers.login.tls.certresolver: letsencrypt
+
+      # traefik-forward-auth middleware itself has some internal endpoints.
+      traefik.http.routers.auth.rule: Host(`${DOMAIN}`) && PathPrefix(`/_oauth`)
+      traefik.http.routers.auth.middlewares: traefik-forward-auth
+      traefik.http.routers.auth.service: grist
+      traefik.http.routers.auth.tls.certresolver: letsencrypt
+
+      # Otherwise, the middleware is not needed and would prevent
+      # public shares. Grist will redirect to login when needed.
+      traefik.http.routers.general.rule: Host(`${DOMAIN}`)
+      traefik.http.routers.general.service: grist
+      traefik.http.routers.general.tls.certresolver: letsencrypt
