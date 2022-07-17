@@ -1,0 +1,11 @@
+---
+# tasks file for KeycloakRealm
+- name: Create or update Keycloak realm
+  community.general.keycloak_realm:
+    auth_client_id: {{ auth_client_id }}
+    auth_keycloak_url: {{ auth_keycloak_url }}
+    auth_realm: {{ auth_realm }}
+    auth_username: {{ auth_username }}
+    auth_password: {{ auth_password }}
+    id: {{ realm_id }}
+    state: present

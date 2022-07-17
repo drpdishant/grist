@@ -1,0 +1,16 @@
+domain: theseus.org.in
+layout:
+- ansible.sdk.operatorframework.io/v1
+plugins:
+  manifests.sdk.operatorframework.io/v2: {}
+  scorecard.sdk.operatorframework.io/v2: {}
+projectName: keycloak
+resources:
+- api:
+    crdVersion: v1
+    namespaced: true
+  domain: theseus.org.in
+  group: kc-realm
+  kind: KeycloakRealm
+  version: v1alpha1
+version: "3"
