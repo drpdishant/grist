@@ -1,7 +1,0 @@
----
-# Use the 'create api' subcommand to add watches to this file.
-- version: v1alpha1
-  group: kc-realm.theseus.org.in
-  kind: KeycloakRealm
-  role: keycloakrealm
-#+kubebuilder:scaffold:watch
